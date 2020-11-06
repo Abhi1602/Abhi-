@@ -5,7 +5,7 @@
 *&---------------------------------------------------------------------*
 REPORT ZMM_MM02_BDC.
 
-data:msg(200) type c.
+data:msg(204) type c.
 
 data: fieldcatalog type slis_t_fieldcat_alv,
       fieldcat     type slis_fieldcat_alv,
