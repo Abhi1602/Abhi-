@@ -1,0 +1,502 @@
+*&---------------------------------------------------------------------*
+*& Report ZMM_MM02_BDC
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ZMM_MM02_BDC.
+
+data:msg(200) type c.
+
+data: fieldcatalog type slis_t_fieldcat_alv,
+      fieldcat     type slis_fieldcat_alv,
+      it_event     type slis_t_event,
+      wa_event     like line of it_event,
+      is_layout    type slis_layout_alv.
+data: trux_fileformat         type  trtm_format,
+      truxs_t_text_data(4096) type c occurs 0.
+data: it_raw type truxs_t_text_data,
+      f_file type string.
+
+types:  begin of ty_fields,
+        srno(0007)   type c,
+        matnr type mara-matnr,
+*        werks type mard-werks,
+*        vkorg type TVKO-vkorg,
+*        vtweg type TVTW-vtweg,
+        taxkm(1) type c,
+        end of ty_fields,
+
+       begin of ty_out,
+         srno(0007)   type c,
+         matnr(40),
+         werks(04),
+         vkorg(04),
+         vtweg(02),
+         taxkm(01),
+         message(100),
+
+       end of ty_out.
+
+data: gt_data   type table of ty_fields,
+      gs_data   type ty_fields,
+      gt_output type table of ty_out,
+      gs_output type ty_out.
+
+constants: gc_nmode type mode value 'X',
+           gc_x     type char1 value  'X',
+           gc_s     type char1 value 'X',
+           gc_eq    type char2 value 'EQ'.
+
+data: wa_header     type bapimathead,
+      wa_plantdata  type  bapi_marc,
+      wa_plantdatax type  bapi_marcx,
+      wa_mvke       type bapi_mvke,
+      wa_mvkex      type bapi_mvkex,
+      wa_client     type  bapi_mara,
+      wa_clientx    type  bapi_marax,
+      wa_bapimlan   type bapi_mlan occurs 0 with header line,
+      wa_return     type bapiret2 occurs  0 with header line.
+
+
+selection-screen: begin of line.
+selection-screen comment  2(80) text-009.
+selection-screen:end of line.
+
+selection-screen: begin of block b with frame title text-000.
+parameters: p_file  type rlgrap-filename.
+selection-screen: end of block b.
+
+
+at selection-screen on value-request for p_file.
+
+  call function 'F4_FILENAME'
+    exporting
+      program_name  = syst-cprog
+      dynpro_number = syst-dynnr
+      field_name    = ' '
+    importing
+      file_name     = p_file.
+
+
+*include bdcrecx1_s.
+
+start-of-selection.
+  perform xls_data.
+  perform update_data.
+  perform fieldcatalog.
+  perform display_data.
+
+form xls_data.
+  call function 'TEXT_CONVERT_XLS_TO_SAP'
+    exporting
+*     I_FIELD_SEPERATOR    = 'X'
+*     I_LINE_HEADER        = 'X'
+      i_tab_raw_data       = it_raw
+      i_filename           = p_file
+    tables
+      i_tab_converted_data = gt_data
+* EXCEPTIONS
+*     CONVERSION_FAILED    = 1
+*     OTHERS               = 2
+    .
+  if sy-subrc <> 0.
+* Implement suitable error handling here
+  endif.
+
+  if gt_data is initial.
+    message text-001 type sy-abcde+8(1) display like sy-abcde+4(1).
+    leave list-processing.
+  endif.
+endform.
+
+form  update_data.
+  if gt_data is not initial.
+    loop at gt_data into gs_data.
+      if sy-tabix gt 1.
+*        call function 'CONVERSION_EXIT_ALPHA_INPUT'
+*          exporting
+*            input  = gs_data-matnr
+*          importing
+*            output = gs_data-matnr.
+
+        wa_header-material = gs_data-matnr.
+        wa_header-material_long = gs_data-matnr.
+        wa_header-SALES_VIEW = 'X'.
+*        wa_plantdata-plant = gs_data-werks.
+*        wa_plantdatax-plant = gs_data-werks.
+
+        wa_bapimlan-depcountry     =  'IN'.
+        wa_bapimlan-taxclass_5     = gs_data-taxkm.
+        wa_bapimlan-tax_type_5     = 'JTC1'.
+        wa_bapimlan-tax_ind        = gs_data-taxkm.
+        append wa_bapimlan.
+        clear wa_bapimlan.
+
+*        call function 'CONVERSION_EXIT_ALPHA_INPUT'
+*          exporting
+*            input  = gs_data-vkorg
+*          importing
+*            output = gs_data-vkorg.
+*        .
+
+*        wa_mvke-sales_org   = gs_data-vkorg.
+*        wa_mvke-distr_chan  = gs_data-vtweg.
+
+*        wa_mvkex-sales_org  = gs_data-vkorg.
+*        wa_mvkex-distr_chan = gs_data-vtweg.
+
+        call function 'BAPI_MATERIAL_SAVEDATA'
+          exporting
+            headdata           = wa_header
+           CLIENTDATA          = wa_client
+           CLIENTDATAX         = wa_clientx
+*            plantdata          = wa_plantdata
+*            plantdatax         = wa_plantdatax
+*            salesdata          = wa_mvke
+*            salesdatax         = wa_mvkex
+          importing
+            return             = wa_return
+          tables
+            taxclassifications = wa_bapimlan.
+        move-corresponding gs_data to gs_output.
+
+*call function 'FORMAT_MESSAGE'
+*              exporting
+*                id        = WA_RETURN-msgid
+*                lang      = 'E'
+*                no        = WA_RETURN-msgnr
+*                v1        = WA_RETURN-msgv1
+*                v2        = WA_RETURN-msgv2
+**                v3        = WA_RETURN-msgv3
+**                v4        = WA_RETURN-msgv4
+*              importing
+*                msg       = msg
+*              exceptions
+*                not_found = 1
+*                others    = 2.
+*            if sy-subrc <> 0.
+*              message id sy-msgid type sy-msgty number sy-msgno with  sy-msgv1
+*               sy-msgv2  sy-msgv3 sy-msgv4.
+*            endif.
+        if  wa_return-type ne 'E'.
+          call function 'BAPI_TRANSACTION_COMMIT'
+            exporting
+              wait = 'X'.
+*   IMPORTING
+*     RETURN        =
+          .
+          wait up to 2 seconds.
+        endif.
+
+        read table wa_return into wa_return index 1.
+        gs_output-message = wa_return-message.
+        append gs_output to gt_output.
+      clear: gs_data, gs_output .
+    endif.
+    endloop.
+  endif.
+*  ENDIF.
+endform.
+form display_data.
+  clear: sy-msgid, sy-msgno,  sy-msgty.
+  data: lv_prog type sy-cprog.
+  is_layout-colwidth_optimize = 'X'.
+
+  call function 'REUSE_ALV_GRID_DISPLAY'
+    exporting
+*     I_INTERFACE_CHECK  = ' '
+*     I_BYPASSING_BUFFER = ' '
+*     I_BUFFER_ACTIVE    = ' '
+      i_callback_program = lv_prog
+*     I_CALLBACK_PF_STATUS_SET          = ' '
+*     I_CALLBACK_USER_COMMAND           = ' '
+      is_layout          = is_layout
+      it_fieldcat        = fieldcatalog
+    tables
+      t_outtab           = gt_output
+    exceptions
+      program_error      = 1
+      others             = 2.
+  if sy-subrc <> 0.
+* Implement suitable error handling here
+  endif.
+
+endform.
+
+
+form fieldcatalog.
+  fieldcat-fieldname = 'SRNO'.
+  fieldcat-seltext_m = text-002.
+  fieldcat-tabname   = 'GT_OUTPUT'.
+  fieldcat-col_pos = 1.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'MATNR'.
+  fieldcat-seltext_m = text-003.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 2.
+  fieldcat-hotspot = 'X'.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'WERKS'.
+  fieldcat-seltext_m = text-004.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 3.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'VKORG'.
+  fieldcat-seltext_m = text-005.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 4.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'VTWEG'.
+  fieldcat-seltext_m = text-006.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 5.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'TAXKM'.
+  fieldcat-seltext_m = text-007.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 6.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+  fieldcat-fieldname = 'MESSAGE'.
+  fieldcat-seltext_m = text-008.
+  fieldcat-tabname = 'GT_OUTPUT'.
+  fieldcat-col_pos = 7.
+  append fieldcat to fieldcatalog.
+  clear fieldcat.
+
+endform.
+
+
+
+********************************************************************************
+*SELECTION-SCREEN BEGIN OF BLOCK blck WITH FRAME TITLE text-011.
+*   PARAMETERS:
+*  p_file   TYPE rlgrap-filename,                  " File Path
+*  p_mode   TYPE c OBLIGATORY DEFAULT 'N'.         " Mode
+*SELECTION-SCREEN END OF BLOCK blck.
+*
+*
+*types : begin of ty_fields,
+*        matnr type mara-matnr,
+**        werks type mard-werks,
+*        vkorg type TVKO-vkorg,
+*        vtweg type TVTW-vtweg,
+*        taxkm(1) type c,
+*
+*        end of ty_fields.
+*
+*data : it_bdcdata type TABLE OF bdcdata,
+*       wa_bdcdata type bdcdata.
+*data : it_field type table of ty_fields,
+*       wa_field type ty_fields,
+*       it_field1 type table of ty_fields,
+*       wa_field1 type ty_fields.
+*data : it_error type table of ty_error,
+*       wa_output type ty_error.
+*data : bdcmsg type table of bdcmsgcoll,
+*       wa_bdcmsg type  bdcmsgcoll.
+*data :  w_mode    TYPE c.
+**TYPES:fs_struct(4096) TYPE c OCCURS 0 .
+*DATA : w_struct TYPE TRUXS_T_TEXT_DATA.
+*data : file type string.
+*data : view type c.
+*
+*AT SELECTION-SCREEN.
+*
+*  IF p_mode = 'A' OR p_mode = 'N' OR p_mode = 'E' .
+*    w_mode = p_mode.
+*  ELSE.
+*    MESSAGE 'PLEASE ENTER THE MODE A or N' TYPE 'E'.
+*  ENDIF.
+*
+*AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+*
+*  CALL FUNCTION 'F4_FILENAME'
+*   EXPORTING
+*     PROGRAM_NAME        = SYST-CPROG
+*     DYNPRO_NUMBER       = SYST-DYNNR
+*     FIELD_NAME          = ' '
+*   IMPORTING
+*     FILE_NAME           = P_FILE
+*
+*            .
+*
+*
+**include bdcrecx1_s.
+*start-of-selection.
+*
+**perform open_group.
+*CALL FUNCTION 'TEXT_CONVERT_XLS_TO_SAP'
+*  EXPORTING
+*    I_FIELD_SEPERATOR          = 'X'
+*    I_LINE_HEADER              = 'X'
+*    i_tab_raw_data             = it_raw
+*    i_filename                 = p_file
+*  TABLES
+*    i_tab_converted_data       = it_field
+* EXCEPTIONS
+*   CONVERSION_FAILED          = 1
+*   OTHERS                     = 2
+*          .
+*IF sy-subrc <> 0.
+** Implement suitable error handling here
+*ENDIF.
+*
+*view = 'X'.
+*loop at it_field into wa_field.
+* refresh : it_bdcdata.
+*
+**perform bdc_dynpro      using 'SAPLMGMM' '0060'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'RMMG1-MATNR'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '=ENTR'.
+**perform bdc_field       using 'RMMG1-MATNR'
+**                              wa_field-matnr."record-MATNR_001.
+**perform bdc_dynpro      using 'SAPLMGMM' '0070'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'MSICHTAUSW-DYTXT(03)'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '=ENTR'.
+**perform bdc_field       using 'MSICHTAUSW-KZSEL(03)'
+**                              'X' ."record-KZSEL_03_002.
+**perform bdc_dynpro      using 'SAPLMGMM' '0080'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'RMMG1-VTWEG'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '=ENTR'.
+**perform bdc_field       using 'RMMG1-WERKS'
+**                              wa_field-werks ."record-WERKS_003.
+**perform bdc_field       using 'RMMG1-VKORG'
+**                              wa_field-vkorg ."record-VKORG_004.
+**perform bdc_field       using 'RMMG1-VTWEG'
+**                              wa_field-vtweg. "record-VTWEG_005.
+**perform bdc_dynpro      using 'SAPLMGMM' '4000'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '/00'.
+**perform bdc_dynpro      using 'SAPLMGMM' '4000'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '/00'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'MG03STEUER-TAXKM(04)'.
+**perform bdc_field       using 'MG03STEUER-TAXKM(04)'
+**                               wa_field-taxkm."record-TAXKM_02_021.
+**perform bdc_dynpro      using 'SAPLMGMM' '4200'.
+**perform bdc_field       using 'BDC_OKCODE'
+**                              '=BU'.
+*
+*perform bdc_dynpro      using 'SAPLMGMM' '0060'.
+*perform bdc_field       using 'BDC_CURSOR'
+*                              'RMMG1-MATNR'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '=ENTR'.
+*perform bdc_field       using 'RMMG1-MATNR'
+*                              wa_field-matnr." record-MATNR_001.
+*perform bdc_dynpro      using 'SAPLMGMM' '0070'.
+*perform bdc_field       using 'BDC_CURSOR'
+*                              'MSICHTAUSW-DYTXT(03)'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '=ENTR'.
+*perform bdc_field       using 'MSICHTAUSW-KZSEL(03)'
+*                               view."'X'."record-KZSEL_03_002.
+*perform bdc_dynpro      using 'SAPLMGMM' '0080'.
+*perform bdc_field       using 'BDC_CURSOR'
+*                              'RMMG1-VTWEG'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '=ENTR'.
+**perform bdc_field       using 'RMMG1-WERKS'
+**                               wa_field-werks."record-WERKS_003.
+*perform bdc_field       using 'RMMG1-VKORG'
+*                               wa_field-vkorg."record-VKORG_004.
+*perform bdc_field       using 'RMMG1-VTWEG'
+*                               wa_field-vtweg."record-VTWEG_005.
+*perform bdc_dynpro      using 'SAPLMGMM' '4000'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '=PB08'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'MAKT-MAKTX'.
+**perform bdc_field       using 'MAKT-MAKTX'
+**                              record-MAKTX_006.
+**perform bdc_field       using 'MARA-MEINS'
+**                              record-MEINS_007.
+**perform bdc_field       using 'MARA-SPART'
+**                              record-SPART_008.
+**perform bdc_field       using 'MARA-MATKL'
+**                              record-MATKL_009.
+**perform bdc_field       using 'MVKE-SKTOF'
+**                              record-SKTOF_010.
+*perform bdc_dynpro      using 'SAPLMGMM' '4200'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '/00'.
+**perform bdc_field       using 'MAKT-MAKTX'
+**                              record-MAKTX_011.
+*perform bdc_field       using 'BDC_CURSOR'
+*                              'MG03STEUER-TAXKM(04)'.
+*perform bdc_field       using 'MG03STEUER-TAXKM(04)'
+*                               wa_field-taxkm."record-TAXKM_04_012.
+*perform bdc_dynpro      using 'SAPLMGMM' '4000'.
+*perform bdc_field       using 'BDC_OKCODE'
+*                              '=BU'.
+**perform bdc_field       using 'BDC_CURSOR'
+**                              'MAKT-MAKTX'.
+**perform bdc_field       using 'MAKT-MAKTX'
+**                              record-MAKTX_013.
+**perform bdc_field       using 'MARA-MEINS'
+**                              record-MEINS_014.
+**perform bdc_field       using 'MARA-SPART'
+**                              record-SPART_015.
+**perform bdc_field       using 'MARA-MATKL'
+**                              record-MATKL_016.
+**perform bdc_field       using 'MVKE-SKTOF'
+**                              record-SKTOF_017.
+*
+*
+*CALL TRANSACTION 'MM02' USING IT_BDCDATA MODE w_mode UPDATE 'A' MESSAGES INTO BDCMSG.
+*
+* CLEAR : WA_FIELD .
+*endloop.
+*
+* IF BDCMSG IS NOT INITIAL.
+*  LOOP AT BDCMSG INTO WA_BDCMSG.
+*   WRITE: / WA_BDCMSG-TCODE,WA_BDCMSG-MSGTYP,WA_BDCMSG-MSGV1,WA_BDCMSG-FLDNAME.
+*  CLEAR WA_BDCMSG.
+*    ENDLOOP.
+*    ENDIF.
+*
+**----------------------------------------------------------------------*
+**        Start new screen                                              *
+**----------------------------------------------------------------------*
+*FORM BDC_DYNPRO USING PROGRAM DYNPRO.
+*  CLEAR wa_BDCDATA.
+*  wa_BDCDATA-PROGRAM  = PROGRAM.
+*  wa_BDCDATA-DYNPRO   = DYNPRO.
+*  wa_BDCDATA-DYNBEGIN = 'X'.
+*  APPEND wa_bdcdata to it_BDCDATA.
+*  clear wa_bdcdata.
+*ENDFORM.
+*
+**----------------------------------------------------------------------*
+**        Insert field                                                  *
+**----------------------------------------------------------------------*
+*FORM BDC_FIELD USING FNAM FVAL.
+**  IF FVAL <> NODATA.
+*    CLEAR wa_BDCDATA.
+*    wa_BDCDATA-FNAM = FNAM.
+*    wa_BDCDATA-FVAL = FVAL.
+*    SHIFT wa_bdcdata-fval LEFT DELETING LEADING space.
+*    APPEND wa_BDCDATA to it_bdcdata.
+*     clear wa_bdcdata.
+*
+**  ENDIF.
+*ENDFORM.
